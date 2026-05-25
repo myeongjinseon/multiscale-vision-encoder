@@ -1,7 +1,7 @@
 #!/bin/bash
 # ================================================================
 #  Multi-Scale Vision Encoder — 실행 스크립트
-#  Usage: bash run.sh [command]
+#  Usage: bash run.sh [command] [options]
 #
 #  Commands:
 #    setup       환경 세팅 (패키지 설치)
@@ -12,15 +12,40 @@
 #    viz         시각화 생성
 #    all         setup → test → train → ablation → eval → viz 순차 실행
 #
+#  Options:
+#    --gpu ID    사용할 GPU 번호 지정 (기본: 자동 감지)
+#                단일 GPU:  --gpu 0
+#                특정 GPU:  --gpu 2
+#                멀티 GPU:  --gpu 0,1,2,3
+#                CPU 강제:  --gpu cpu
+#
 #  Examples:
-#    bash run.sh setup          # 처음 한 번만
-#    bash run.sh test           # 파이프라인 동작 확인
-#    bash run.sh train          # 본격 학습
-#    bash run.sh ablation       # Ablation 실험
-#    bash run.sh all            # 전부 실행
+#    bash run.sh setup                # 처음 한 번만
+#    bash run.sh test                 # 파이프라인 동작 확인
+#    bash run.sh train --gpu 0        # GPU 0번으로 학습
+#    bash run.sh train --gpu 2,3      # GPU 2,3번 사용
+#    bash run.sh ablation --gpu 1     # GPU 1번으로 ablation
+#    bash run.sh all --gpu 0          # 전부 GPU 0번으로
 # ================================================================
 
 set -e  # 에러 발생 시 중단
+
+# ── 옵션 파싱 ──
+GPU_ARG=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --gpu)
+            GPU_ARG="$2"
+            shift 2
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${ARGS[@]}"
 
 # ── 경로 설정 ──
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,9 +55,20 @@ CONFIG="configs/default.yaml"
 EXP_DIR="experiments"
 DEVICE="cpu"
 
-# GPU 자동 감지
-if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+# GPU 설정
+if [ "$GPU_ARG" = "cpu" ]; then
+    # CPU 강제 사용
+    DEVICE="cpu"
+    export CUDA_VISIBLE_DEVICES=""
+elif [ -n "$GPU_ARG" ]; then
+    # 사용자가 GPU 번호 지정
+    export CUDA_VISIBLE_DEVICES="$GPU_ARG"
     DEVICE="cuda"
+else
+    # 자동 감지
+    if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+        DEVICE="cuda"
+    fi
 fi
 
 # ── 색상 출력 ──
@@ -47,6 +83,11 @@ banner() {
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
     echo -e "${CYAN}  $1${NC}"
+    if [ "$DEVICE" = "cuda" ]; then
+        echo -e "${CYAN}  GPU: ${CUDA_VISIBLE_DEVICES:-auto}${NC}"
+    else
+        echo -e "${CYAN}  Device: CPU${NC}"
+    fi
     echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
     echo ""
 }
@@ -83,6 +124,18 @@ cmd_setup() {
     mkdir -p data/coco data/refcoco
 
     info "Device: $DEVICE"
+    if [ "$DEVICE" = "cuda" ]; then
+        info "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-all}"
+        python -c "
+import torch
+n = torch.cuda.device_count()
+print(f'  사용 가능 GPU: {n}개')
+for i in range(n):
+    name = torch.cuda.get_device_name(i)
+    mem = torch.cuda.get_device_properties(i).total_mem / 1024**3
+    print(f'    GPU {i}: {name} ({mem:.1f} GB)')
+" 2>/dev/null || true
+    fi
     success "환경 세팅 완료!"
 }
 
@@ -362,7 +415,7 @@ cmd_all() {
 # ================================================================
 cmd_help() {
     echo ""
-    echo "Usage: bash run.sh [command]"
+    echo "Usage: bash run.sh [command] [--gpu ID]"
     echo ""
     echo "Commands:"
     echo "  setup      환경 세팅 (패키지 설치)"
@@ -373,12 +426,20 @@ cmd_help() {
     echo "  viz        시각화 생성"
     echo "  all        전부 순차 실행"
     echo ""
+    echo "GPU Options:"
+    echo "  --gpu 0        GPU 0번만 사용"
+    echo "  --gpu 2        GPU 2번만 사용"
+    echo "  --gpu 0,1,2,3  GPU 0~3번 사용 (멀티 GPU)"
+    echo "  --gpu cpu      CPU 강제 사용"
+    echo "  (생략)          자동 감지"
+    echo ""
     echo "Examples:"
-    echo "  bash run.sh setup      # 처음 한 번"
-    echo "  bash run.sh test       # 동작 확인"
-    echo "  bash run.sh train      # 학습 시작"
-    echo "  bash run.sh ablation   # Ablation"
-    echo "  bash run.sh all        # 전부 실행"
+    echo "  bash run.sh setup              # 처음 한 번"
+    echo "  bash run.sh test --gpu 0       # GPU 0번으로 테스트"
+    echo "  bash run.sh train --gpu 0      # GPU 0번으로 학습"
+    echo "  bash run.sh train --gpu 2,3    # GPU 2,3번 사용"
+    echo "  bash run.sh ablation --gpu 1   # GPU 1번으로 ablation"
+    echo "  bash run.sh all --gpu 0        # 전부 GPU 0번"
     echo ""
 }
 
