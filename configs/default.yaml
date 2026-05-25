@@ -1,0 +1,100 @@
+# Multi-Scale Vision Encoder Configuration
+# ==========================================
+
+# Model
+model:
+  backbone: "clip-vit-base-patch16"       # clip-vit-base-patch16 | dinov2-base | vit-base-patch16
+  extraction_layers: [3, 6, 9, 12]        # Which layers to extract features from
+  hidden_dim: 512                          # Unified projection dimension D
+  num_scales: 4                            # Number of feature scales
+  freeze_backbone: true                    # Freeze pretrained backbone weights
+  
+  # Scale-wise Attention
+  scale_attention:
+    num_heads: 8
+    dropout: 0.1
+    temperature: 1.0                       # Softmax temperature for scale weights
+  
+  # Residual Refinement
+  residual_refine:
+    ffn_ratio: 4                           # FFN hidden dim = hidden_dim * ffn_ratio
+    dropout: 0.1
+    num_blocks: 2                          # Number of refinement blocks
+    use_cross_attention: false             # Cross-attn with deep feature as anchor
+
+# Captioning Head
+captioning:
+  decoder_layers: 3
+  decoder_heads: 8
+  decoder_dim: 512
+  vocab_size: 30522                        # BERT tokenizer vocab size
+  max_length: 50
+  beam_size: 5
+  label_smoothing: 0.1
+
+# Grounding Head
+grounding:
+  hidden_dim: 256
+  num_layers: 2
+  bbox_loss_weight: 5.0
+  giou_loss_weight: 2.0
+
+# Training
+training:
+  # Optimizer
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  
+  # Scheduler
+  scheduler: "cosine"
+  warmup_epochs: 5
+  min_lr: 1.0e-6
+  
+  # Training params
+  epochs: 30
+  batch_size: 32
+  gradient_clip: 1.0
+  accumulation_steps: 1
+  mixed_precision: true
+  
+  # Checkpointing
+  save_every: 5
+  eval_every: 1
+
+# Data
+data:
+  # COCO Captions
+  coco:
+    root: "./data/coco"
+    train_ann: "annotations/captions_train2017.json"
+    val_ann: "annotations/captions_val2017.json"
+    train_images: "train2017"
+    val_images: "val2017"
+  
+  # RefCOCO
+  refcoco:
+    root: "./data/refcoco"
+    dataset: "refcoco"                     # refcoco | refcoco+ | refcocog
+    split_by: "unc"
+  
+  # Preprocessing
+  image_size: 224
+  num_workers: 4
+  pin_memory: true
+
+# Ablation flags
+ablation:
+  fusion_method: "scale_attention"         # scale_attention | concat | weighted_avg | simple_avg
+  use_residual_refine: true
+  num_active_scales: 4                     # 1=deep only, 2=mid+deep, etc.
+  active_layers: [3, 6, 9, 12]            # Override extraction layers
+
+# Logging
+logging:
+  project_name: "multiscale-vision-encoder"
+  use_wandb: false
+  log_interval: 50
+  save_dir: "./experiments"
