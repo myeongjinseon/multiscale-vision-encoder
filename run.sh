@@ -106,8 +106,50 @@ cmd_setup() {
     info "Python 버전 확인..."
     python --version || fail "Python이 설치되어 있지 않습니다"
 
-    info "필수 패키지 설치..."
-    pip install torch torchvision pyyaml matplotlib pillow --quiet
+    # CUDA 버전 자동 감지 → 맞는 PyTorch 설치
+    info "CUDA 버전 감지 중..."
+    CUDA_VER=""
+    if command -v nvidia-smi &>/dev/null; then
+        CUDA_VER=$(nvidia-smi | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' 2>/dev/null || true)
+    fi
+
+    if [ -n "$CUDA_VER" ]; then
+        info "감지된 CUDA 버전: $CUDA_VER"
+        # CUDA 버전별 PyTorch 설치 URL 결정
+        CUDA_MAJOR=$(echo "$CUDA_VER" | cut -d. -f1)
+        CUDA_MINOR=$(echo "$CUDA_VER" | cut -d. -f2)
+
+        if [ "$CUDA_MAJOR" -eq 12 ]; then
+            if [ "$CUDA_MINOR" -ge 4 ]; then
+                TORCH_URL="https://download.pytorch.org/whl/cu124"
+            else
+                TORCH_URL="https://download.pytorch.org/whl/cu121"
+            fi
+        elif [ "$CUDA_MAJOR" -eq 11 ]; then
+            if [ "$CUDA_MINOR" -ge 8 ]; then
+                TORCH_URL="https://download.pytorch.org/whl/cu118"
+            else
+                # CUDA 11.4~11.7 → cu113 빌드 사용
+                TORCH_URL="https://download.pytorch.org/whl/cu113"
+            fi
+        else
+            TORCH_URL=""
+        fi
+
+        if [ -n "$TORCH_URL" ]; then
+            info "PyTorch 설치 (CUDA $CUDA_VER 호환)..."
+            pip install torch torchvision --index-url "$TORCH_URL" --quiet
+        else
+            warn "CUDA $CUDA_VER 에 대한 자동 매칭 실패 — 기본 PyTorch 설치"
+            pip install torch torchvision --quiet
+        fi
+    else
+        info "GPU 미감지 — CPU용 PyTorch 설치..."
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet
+    fi
+
+    info "기타 필수 패키지 설치..."
+    pip install pyyaml matplotlib pillow --quiet
 
     info "(선택) Pretrained backbone 패키지 설치..."
     pip install open_clip_torch timm --quiet 2>/dev/null || \
